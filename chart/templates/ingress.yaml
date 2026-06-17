@@ -1,4 +1,6 @@
 {{- if eq .Values.ingress.enabled true }}
+{{- if eq (.Values.orionIngressProvider | default "envoy-gateway") "nginx" }}
+# --- nginx ingress controller (legacy provider) ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -32,4 +34,135 @@ spec:
       allowEmpty: true
     syncOptions:
       - CreateNamespace=true
+{{- else }}
+# --- Envoy Gateway (default provider) ---
+# Installs the Envoy Gateway controller (OCI helm) as a SECONDARY gateway and
+# provisions a `juno` Gateway on its own LB IP. The Genesis/Orion/Terra charts
+# attach HTTPRoutes + SecurityPolicies to it. Any existing Cilium/other gateway
+# is untouched (distinct GatewayClass).
+{{- $eg := .Values.envoyGateway }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: envoyproxy-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: envoyproxy-oci
+  type: helm
+  url: {{ $eg.registry | default "docker.io/envoyproxy" }}
+  enableOCI: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: envoy-gateway
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - "resources-finalizer.argocd.argoproj.io"
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $eg.gateway.namespace | default "envoy-gateway-system" }}
+  sources:
+    - repoURL: {{ $eg.registry | default "docker.io/envoyproxy" }}
+      chart: gateway-helm
+      targetRevision: {{ $eg.chartVersion | default "v1.8.1" }}
+      helm:
+        releaseName: eg
+{{- if $eg.config }}
+        values: |-
+          {{- include "omitNulls" $eg.config | nindent 10 }}
+{{- end }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ $eg.gateway.className | default "envoy-gateway" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: {{ $eg.gateway.name | default "juno" }}-proxy
+    namespace: {{ $eg.gateway.namespace | default "envoy-gateway-system" }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: {{ $eg.gateway.name | default "juno" }}-proxy
+  namespace: {{ $eg.gateway.namespace | default "envoy-gateway-system" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: LoadBalancer
+        externalTrafficPolicy: Cluster
+{{- if $eg.gateway.l2Label }}
+        labels:
+          juno.dev/l2-announce: {{ $eg.gateway.l2Label | quote }}
+{{- end }}
+{{- if $eg.gateway.lbIP }}
+        annotations:
+          io.cilium/lb-ipam-ips: {{ $eg.gateway.lbIP | quote }}
+{{- end }}
+{{- with $eg.gateway.tolerations }}
+      envoyDeployment:
+        pod:
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ $eg.gateway.name | default "juno" }}
+  namespace: {{ $eg.gateway.namespace | default "envoy-gateway-system" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  gatewayClassName: {{ $eg.gateway.className | default "envoy-gateway" }}
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+{{- if $eg.gateway.tlsSecretName }}
+    - name: https
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: {{ $eg.gateway.tlsSecretName }}
+      allowedRoutes:
+        namespaces:
+          from: All
+{{- end }}
+{{- end }}
 {{- end }}

@@ -17,8 +17,16 @@ genesis:
   config:
     host:
     http_scheme: https
+# Ingress provider: "envoy-gateway" (default) installs Envoy Gateway as a
+# secondary gateway (see envoyGateway below); "nginx" installs ingress-nginx
+# (the `ingress:` block below). Either way the workload charts render their
+# routes for the chosen provider. Set ingress.enabled=false to install neither
+# (bring-your-own gateway — e.g. one already managed elsewhere).
+orionIngressProvider: envoy-gateway
+
 ingress:
   enabled: true
+  # nginx settings (used only when orionIngressProvider=nginx)
   chart: ingress-nginx
   # Used when the repoURL is git-based, eg.
   # chartPath: charts/ingress-nginx
@@ -28,4 +36,24 @@ ingress:
   config:
     controller:
       kind: DaemonSet
+
+# Envoy Gateway settings (used when orionIngressProvider=envoy-gateway)
+envoyGateway:
+  registry: docker.io/envoyproxy
+  chartVersion: v1.8.1
+  # extra helm values for the gateway-helm chart (optional)
+  config: {}
+  gateway:
+    name: juno
+    namespace: envoy-gateway-system
+    className: envoy-gateway
+    # Pin the LB IP (Cilium LB-IPAM) — leave empty to let IPAM choose.
+    lbIP: ""
+    # Label for a CiliumL2AnnouncementPolicy (empty to skip labeling).
+    l2Label: envoy-gateway
+    # Secret with the TLS cert for the HTTPS listener (empty = HTTP only).
+    tlsSecretName: ""
+    # Pod tolerations for the provisioned Envoy (e.g. to run on control plane).
+    tolerations: []
+
 aws_marketplace: {}
