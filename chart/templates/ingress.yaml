@@ -127,11 +127,21 @@ spec:
         annotations:
           io.cilium/lb-ipam-ips: {{ $eg.gateway.lbIP | quote }}
 {{- end }}
-{{- with $eg.gateway.tolerations }}
+{{- if or $eg.gateway.tolerations $eg.gateway.replicas $eg.gateway.resources }}
       envoyDeployment:
+{{- if $eg.gateway.replicas }}
+        replicas: {{ $eg.gateway.replicas }}
+{{- end }}
+{{- with $eg.gateway.tolerations }}
         pod:
           tolerations:
             {{- toYaml . | nindent 12 }}
+{{- end }}
+{{- with $eg.gateway.resources }}
+        container:
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
 {{- end }}
 ---
 apiVersion: gateway.networking.k8s.io/v1

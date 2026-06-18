@@ -55,5 +55,10 @@ envoyGateway:
     tlsSecretName: ""
     # Pod tolerations for the provisioned Envoy (e.g. to run on control plane).
     tolerations: []
+    # Replicas for the provisioned Envoy proxy. Empty -> Envoy Gateway's default.
+    replicas: ""
+    # Container resources for the provisioned Envoy proxy (requests/limits).
+    # Empty -> Envoy Gateway's defaults; set to override.
+    resources: {}
 
 aws_marketplace: {}
