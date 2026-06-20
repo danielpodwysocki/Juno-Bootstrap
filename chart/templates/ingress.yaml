@@ -76,6 +76,12 @@ spec:
       targetRevision: {{ $eg.chartVersion | default "v1.8.1" }}
       helm:
         releaseName: eg
+        # gateway-helm BUNDLES the Gateway API + Envoy Gateway CRDs. By default
+        # we skip them (installCRDs=false) so Argo never owns/prunes them — a
+        # prune of these cluster-wide CRDs cascade-deletes every Gateway/
+        # HTTPRoute/EnvoyProxy on the cluster. Provision the CRDs out-of-band, or
+        # set envoyGateway.installCRDs=true to let this chart manage them.
+        skipCrds: {{ not ($eg.installCRDs | default false) }}
 {{- if $eg.config }}
         values: |-
           {{- include "omitNulls" $eg.config | nindent 10 }}

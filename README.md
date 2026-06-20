@@ -16,6 +16,7 @@
 - [Prerequisites](#prerequisites)
 - [Configuration](#configuration)
 - [Installation](#installation)
+- [Ingress & Envoy Gateway CRDs](#ingress--envoy-gateway-crds)
 
 ### Introduction
 
@@ -64,3 +65,46 @@ configuration for your deployment.
              helm install juno ./chart/ \
               -f ./.values.yaml
          ```
+
+## Ingress & Envoy Gateway CRDs
+
+With the default ingress provider (`orionIngressProvider: envoy-gateway`), the
+bootstrap installs [Envoy Gateway](https://gateway.envoyproxy.io/) as a secondary
+gateway (controller, `GatewayClass`, `EnvoyProxy`, and a `Gateway`) and the Juno
+workload charts attach their `HTTPRoute`/`SecurityPolicy` resources to it.
+
+### CRDs are NOT installed by default
+
+The `gateway-helm` chart **bundles the Gateway API and Envoy Gateway CRDs**. By
+default this bootstrap **does not install or manage them** (`envoyGateway.installCRDs:
+false`, which sets `skipCrds` on the Argo CD Application). This is deliberate:
+
+> CRDs are cluster-wide and shared. If Argo CD owns them and ever prunes them — a
+> failed sync, an app deletion, an ownership change — **every `Gateway`,
+> `HTTPRoute`, and `EnvoyProxy` object on the cluster is cascade-deleted**, taking
+> down all ingress. Keeping CRDs out of the GitOps prune path avoids this.
+
+You therefore have two options:
+
+**Option A — provision the CRDs out-of-band (recommended).** Install them once,
+manually, before deploying Juno (and manage their lifecycle separately from Argo):
+
+```bash
+# Gateway API CRDs (pick the channel/version your gateways need)
+kubectl apply --server-side --force-conflicts \
+  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/experimental-install.yaml
+
+# Envoy Gateway CRDs (from the gateway-helm chart you deploy)
+helm pull oci://docker.io/envoyproxy/gateway-helm --version v1.8.1 --untar
+kubectl apply --server-side --force-conflicts -f gateway-helm/charts/crds/crds/generated/
+```
+
+**Option B — let this chart install/manage them.** Set the value explicitly:
+
+```yaml
+envoyGateway:
+  installCRDs: true   # chart installs + manages the CRDs (Argo owns them)
+```
+
+Use Option B only if you accept that Argo CD owns these cluster-wide CRDs and you
+have prune safeguards in place.

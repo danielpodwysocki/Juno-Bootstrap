@@ -41,6 +41,12 @@ ingress:
 envoyGateway:
   registry: docker.io/envoyproxy
   chartVersion: v1.8.1
+  # Whether this chart installs/manages the Gateway API + Envoy Gateway CRDs
+  # (bundled in gateway-helm). DEFAULT false: skip them, so Argo never prunes
+  # cluster-wide CRDs (a prune cascade-deletes every Gateway/HTTPRoute/EnvoyProxy
+  # on the cluster). Provision the CRDs out-of-band (see README), or set true to
+  # let this chart manage them.
+  installCRDs: false
   # extra helm values for the gateway-helm chart (optional)
   config: {}
   gateway:
